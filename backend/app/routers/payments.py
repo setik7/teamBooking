@@ -30,21 +30,24 @@ async def checkout_subscribe(
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=[{
-            "price_data": {
-                "currency": "eur",
-                "product_data": {"name": f"TeamBooking - {plan.name}"},
-                "unit_amount": int(plan.price_eur * 100),
-            },
-            "quantity": 1,
-        }],
-        mode="payment",
-        success_url=f"{settings.frontend_url}/plans?success=1&session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{settings.frontend_url}/plans?cancelled=1",
-        metadata={"user_id": str(user.id), "plan_id": str(plan.id), "type": "subscription"},
-    )
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "eur",
+                    "product_data": {"name": f"TeamBooking - {plan.name}"},
+                    "unit_amount": int(plan.price_eur * 100),
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=f"{settings.frontend_url}/plans?success=1&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{settings.frontend_url}/plans?cancelled=1",
+            metadata={"user_id": str(user.id), "plan_id": str(plan.id), "type": "subscription"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
 
     db.add(Payment(
         user_id=user.id,
@@ -68,21 +71,24 @@ async def checkout_tokens(
     price_per_token = 5.0
     total = amount * price_per_token
 
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=[{
-            "price_data": {
-                "currency": "eur",
-                "product_data": {"name": f"TeamBooking - {amount} Tokens"},
-                "unit_amount": int(total * 100),
-            },
-            "quantity": 1,
-        }],
-        mode="payment",
-        success_url=f"{settings.frontend_url}/subscription?tokens_success=1&session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{settings.frontend_url}/subscription?cancelled=1",
-        metadata={"user_id": str(user.id), "token_amount": str(amount), "type": "tokens"},
-    )
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "eur",
+                    "product_data": {"name": f"TeamBooking - {amount} Tokens"},
+                    "unit_amount": int(total * 100),
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=f"{settings.frontend_url}/subscription?tokens_success=1&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{settings.frontend_url}/subscription?cancelled=1",
+            metadata={"user_id": str(user.id), "token_amount": str(amount), "type": "tokens"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
 
     db.add(Payment(
         user_id=user.id,
