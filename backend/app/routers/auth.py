@@ -10,6 +10,7 @@ from app.db.models import User
 from app.auth.jwt import create_access_token
 from app.auth.dependencies import get_current_user
 from app.schemas.user import UserOut
+from app.middleware.rate_limiter import limiter, AUTH_LIMIT
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -67,35 +68,38 @@ async def find_or_create_user(
     return user
 
 
-@router.get("/login/dev")
-async def login_dev(request: Request, db: AsyncSession = Depends(get_db)):
-    """Dev-only login bypass. Creates/finds a dev user and issues a token directly."""
-    user = await find_or_create_user(db, "dev@test.com", "Dev User", None, "dev", "dev1")
-    access_token = create_access_token({"sub": str(user.id)})
-    return RedirectResponse(f"{settings.frontend_url}/auth/callback?token={access_token}")
+if settings.environment == "development":
+    @router.get("/login/dev")
+    async def login_dev(request: Request, db: AsyncSession = Depends(get_db)):
+        """Dev-only login bypass. Creates/finds a dev user and issues a token directly."""
+        user = await find_or_create_user(db, "dev@test.com", "Dev User", None, "dev", "dev1")
+        access_token = create_access_token({"sub": str(user.id)})
+        return RedirectResponse(f"{settings.frontend_url}/auth/callback?token={access_token}")
 
 
 @router.get("/login/{provider}")
+@limiter.limit(AUTH_LIMIT)
 async def login(provider: str, request: Request):
     if provider not in ("google", "github"):
         raise HTTPException(status_code=400, detail="Unsupported provider")
 
     client = oauth.create_client(provider)
     if client is None:
-        raise HTTPException(status_code=400, detail=f"{provider} OAuth not configured")
+        raise HTTPException(status_code=400, detail="Unsupported provider")
 
     redirect_uri = f"{settings.backend_url}/auth/callback/{provider}"
     return await client.authorize_redirect(request, redirect_uri)
 
 
 @router.get("/callback/{provider}")
+@limiter.limit(AUTH_LIMIT)
 async def callback(provider: str, request: Request, db: AsyncSession = Depends(get_db)):
     if provider not in ("google", "github"):
         raise HTTPException(status_code=400, detail="Unsupported provider")
 
     client = oauth.create_client(provider)
     if client is None:
-        raise HTTPException(status_code=400, detail=f"{provider} OAuth not configured")
+        raise HTTPException(status_code=400, detail="Unsupported provider")
 
     token = await client.authorize_access_token(request)
 

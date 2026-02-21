@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.auth.dependencies import get_current_user
 from app.db.models import User, Plan, Payment, PaymentStatus
 from app.services.subscription_service import activate_subscription, credit_tokens
+from app.middleware.rate_limiter import limiter, PAYMENT_LIMIT
 
 router = APIRouter(tags=["payments"])
 settings = get_settings()
@@ -17,7 +18,9 @@ if settings.stripe_secret_key:
 
 
 @router.post("/checkout/subscribe")
+@limiter.limit(PAYMENT_LIMIT)
 async def checkout_subscribe(
+    request: Request,
     plan_id: int,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -46,8 +49,8 @@ async def checkout_subscribe(
             cancel_url=f"{settings.frontend_url}/plans?cancelled=1",
             metadata={"user_id": str(user.id), "plan_id": str(plan.id), "type": "subscription"},
         )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
+    except Exception:
+        raise HTTPException(status_code=502, detail="Payment processing error")
 
     db.add(Payment(
         user_id=user.id,
@@ -60,7 +63,9 @@ async def checkout_subscribe(
 
 
 @router.post("/checkout/tokens")
+@limiter.limit(PAYMENT_LIMIT)
 async def checkout_tokens(
+    request: Request,
     amount: int = 5,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -87,8 +92,8 @@ async def checkout_tokens(
             cancel_url=f"{settings.frontend_url}/subscription?cancelled=1",
             metadata={"user_id": str(user.id), "token_amount": str(amount), "type": "tokens"},
         )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Stripe error: {str(e)}")
+    except Exception:
+        raise HTTPException(status_code=502, detail="Payment processing error")
 
     db.add(Payment(
         user_id=user.id,
@@ -160,7 +165,9 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     sig_header = request.headers.get("stripe-signature")
 
     if not settings.stripe_webhook_secret:
-        # No webhook secret = skip signature verification (dev mode)
+        if settings.environment != "development":
+            raise HTTPException(status_code=503, detail="Webhook not configured")
+        # Dev mode only: skip signature verification
         import json
         event = json.loads(payload)
     else:

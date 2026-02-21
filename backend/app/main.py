@@ -30,7 +30,11 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="TeamBooking", version="1.0.0", lifespan=lifespan)
+_docs_kwargs = {}
+if settings.environment != "development":
+    _docs_kwargs = {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+app = FastAPI(title="TeamBooking", version="1.0.0", lifespan=lifespan, **_docs_kwargs)
 
 # Rate limiter
 app.state.limiter = limiter
@@ -64,18 +68,28 @@ app.include_router(payments.router)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    import logging
+    logger = logging.getLogger("teambooking")
+    logger.error(f"Unhandled error: {type(exc).__name__}: {exc}", exc_info=True)
+
     origin = request.headers.get("origin", "")
     headers = {}
     if origin in cors_origins:
         headers["Access-Control-Allow-Origin"] = origin
         headers["Access-Control-Allow-Credentials"] = "true"
+
+    if settings.environment == "development":
+        detail = f"Internal server error: {type(exc).__name__}: {str(exc)}"
+    else:
+        detail = "Internal server error"
+
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal server error: {type(exc).__name__}: {str(exc)}"},
+        content={"detail": detail},
         headers=headers,
     )
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "frontend_url": settings.frontend_url, "backend_url": settings.backend_url}
+    return {"status": "ok"}

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     stripe_publishable_key: str = ""
 
     # App
+    environment: str = "production"
     frontend_url: str = "http://localhost:5173"
     backend_url: str = "http://localhost:8000"
 
